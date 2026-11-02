@@ -1,5 +1,5 @@
 import { createOpenAI } from "@ai-sdk/openai";
-import { Output, streamText } from "ai";
+import { Output, parsePartialJson, streamText } from "ai";
 import { z } from "zod";
 
 const elementSchema = z.object({
@@ -49,7 +49,14 @@ Links: linkUrl for websites, linkSlideIndex (0-based) to jump to a slide in this
 mode: "append" adds new slides after the current one; "replace_current" replaces the current slide with slides[0]; "replace_all" replaces the entire deck; "none" when just answering a question (slides = []).
 reply: a short friendly sentence about what you did.`;
 
-export async function runSlideAssistant(input: { prompt: string; deckJson: string; currentIndex: number }): Promise<AiResult> {
+export type AiProgress =
+  | { type: "reasoning"; text: string }
+  | { type: "progress"; slides: number; elements: number; currentTitle: string };
+
+export async function runSlideAssistant(
+  input: { prompt: string; deckJson: string; currentIndex: number },
+  onProgress?: (p: AiProgress) => void,
+): Promise<AiResult> {
   const apiKey = process.env["LOVABLE_API_KEY"];
   if (!apiKey) throw new Error("AI is not configured.");
   const provider = createOpenAI({
@@ -79,8 +86,24 @@ export async function runSlideAssistant(input: { prompt: string; deckJson: strin
       },
     },
   } as Parameters<typeof streamText>[0]);
+  let raw = "";
+  let lastKey = "";
   for await (const part of result.fullStream) {
     if (part.type === "error") streamError = part.error;
+    else if (part.type === "reasoning-delta" && part.text) onProgress?.({ type: "reasoning", text: part.text });
+    else if (part.type === "text-delta" && onProgress) {
+      raw += part.text;
+      const { value } = await parsePartialJson(raw);
+      const slides = (value as { slides?: { elements?: { text?: string }[] }[] } | undefined)?.slides ?? [];
+      const elements = slides.reduce((n, s) => n + (s?.elements?.length ?? 0), 0);
+      const last = slides[slides.length - 1];
+      const currentTitle = (last?.elements?.find((e) => e?.text)?.text ?? "").split("\n")[0]!.slice(0, 60);
+      const key = `${slides.length}:${elements}:${currentTitle}`;
+      if (key !== lastKey) {
+        lastKey = key;
+        onProgress({ type: "progress", slides: slides.length, elements, currentTitle });
+      }
+    }
   }
   if (streamError) throw streamError;
   try {
