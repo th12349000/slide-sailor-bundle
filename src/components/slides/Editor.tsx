@@ -17,7 +17,7 @@ import {
   type AiChatMsg, type Deck, type ShapeKind, type Slide, type SlideElement, type SlideLink, type TransitionKind,
 } from "@/lib/deck";
 import { askSlideAi } from "@/lib/ai.functions";
-import { exportDeck } from "@/lib/pptx";
+import { exportDeck, type ExportFormat } from "@/lib/pptx";
 
 const SHAPES: { kind: ShapeKind; icon: typeof Square; label: string }[] = [
   { kind: "rect", icon: Square, label: "Rectangle" },
@@ -141,12 +141,12 @@ export function Editor({ initial }: { initial: Deck }) {
   const present = () => { upsertDeck(deck); navigate({ to: "/view/$deckId", params: { deckId: deck.id }, search: { slide: cur + 1 } }); };
 
   const [exporting, setExporting] = useState(false);
-  const doExport = async (format: "pptx" | "ppsx") => {
+  const doExport = async (format: ExportFormat) => {
     setExporting(true);
     try {
       upsertDeck(deck);
-      await exportDeck(deck, format);
-      toast.success(`Downloaded ${deck.title}.${format}`);
+      const name = await exportDeck(deck, format);
+      toast.success(`Downloaded ${name}`);
     } catch (e) {
       toast.error(`Export failed: ${(e as Error).message}`);
     } finally {
@@ -211,6 +211,7 @@ export function Editor({ initial }: { initial: Deck }) {
           <DropdownMenuContent>
             <DropdownMenuItem onClick={() => doExport("pptx")}>PowerPoint (.pptx)</DropdownMenuItem>
             <DropdownMenuItem onClick={() => doExport("ppsx")}>PowerPoint Slideshow (.ppsx)</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => doExport("both")}>Both formats</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
         <Button onClick={present}><Play /> Present</Button>
