@@ -253,13 +253,29 @@ async function postProcess(buf: ArrayBuffer, deck: Deck, slideshow: boolean): Pr
     patch(`ppt/slides/slide${i + 1}.xml`, (xml) => xml.replace("</p:sld>", `${TRANSITION_XML[t]}</p:sld>`));
   }
 
-  // 2. Fix two pptxgenjs quirks that strict PowerPoint validation rejects:
+  // 2. Fix pptxgenjs quirks that strict PowerPoint readers (iOS/Mac) reject:
   //    a. a content-type Override for a slideMaster2.xml part that doesn't exist
   //    b. notesMasterIdLst placed after sldIdLst (schema requires it before)
+  //    c. notes master sharing theme1.xml with the slide master — PowerPoint always gives it its own theme
+  //    d. empty hyperlink attributes + whitespace-padded extLst inside hlinkClick
+  const theme1 = entries.find((e) => e.name === "ppt/theme/theme1.xml");
+  const hasNotesMaster = entries.some((e) => e.name === "ppt/notesMasters/notesMaster1.xml");
+  if (theme1 && hasNotesMaster && !entries.some((e) => e.name === "ppt/theme/theme2.xml")) {
+    entries.push({ name: "ppt/theme/theme2.xml", data: theme1.data.slice() });
+    patch("ppt/notesMasters/_rels/notesMaster1.xml.rels", (xml) =>
+      xml.replace("../theme/theme1.xml", "../theme/theme2.xml").replace(/>\s+</g, "><"),
+    );
+  }
   patch("[Content_Types].xml", (xml) => {
     let out = xml.replace(/<Override PartName="\/ppt\/slideMasters\/slideMaster2\.xml"[^>]*\/>/, "");
     if (slideshow) out = out.replace("presentationml.presentation.main+xml", "presentationml.slideshow.main+xml");
-    return out;
+    if (hasNotesMaster && !out.includes("/ppt/theme/theme2.xml")) {
+      out = out.replace(
+        "</Types>",
+        '<Override PartName="/ppt/theme/theme2.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/></Types>',
+      );
+    }
+    return out.replace(/>\s+</g, "><");
   });
   patch("ppt/presentation.xml", (xml) => {
     const m = xml.match(/<p:notesMasterIdLst>.*?<\/p:notesMasterIdLst>/);
@@ -268,6 +284,14 @@ async function postProcess(buf: ArrayBuffer, deck: Deck, slideshow: boolean): Pr
     }
     return xml;
   });
+  for (const e of entries) {
+    if (!/^ppt\/slides\/slide\d+\.xml$/.test(e.name)) continue;
+    patch(e.name, (xml) =>
+      xml
+        .replace(/<a:hlinkClick([^>]*?)>\s*<a:extLst>[\s\S]*?<\/a:extLst>\s*<\/a:hlinkClick>/g, "<a:hlinkClick$1/>")
+        .replace(/<a:hlinkClick[^>]*\/>/g, (tag) => tag.replace(/\s(invalidUrl|action|tgtFrame|tooltip)=""/g, "")),
+    );
+  }
 
   const bytes = await writeZip(entries);
   return new Blob([bytes as BlobPart], {
@@ -306,9 +330,33 @@ export function downloadBlob(blob: Blob, filename: string) {
 
 export type ExportFormat = "pptx" | "ppsx" | "both";
 
+const safeName = (deck: Deck) => deck.title.replace(/[^\w\- ]+/g, "").trim() || "presentation";
+
+/**
+ * Single .pptx without a zip — for iPhone/iPad, where PowerPoint can't open a .zip.
+ * Uses the share sheet when available (lets the user pick PowerPoint directly), else downloads.
+ */
+export async function exportSinglePptx(deck: Deck): Promise<string> {
+  const name = `${safeName(deck)}.pptx`;
+  const blob = await buildPresentationFile(deck, false);
+  const file = new File([blob], name, { type: blob.type });
+  const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
+  if (nav.share && nav.canShare?.({ files: [file] })) {
+    try {
+      await nav.share({ files: [file], title: name });
+      return name;
+    } catch (e) {
+      if ((e as Error).name === "AbortError") return name;
+      // share blocked (e.g. inside an iframe) — fall through to download
+    }
+  }
+  downloadBlob(file, name);
+  return name;
+}
+
 /** Export as a ZIP containing a folder named after the deck with the presentation file(s) inside. */
 export async function exportDeck(deck: Deck, format: ExportFormat) {
-  const safe = deck.title.replace(/[^\w\- ]+/g, "").trim() || "presentation";
+  const safe = safeName(deck);
   const formats: ("pptx" | "ppsx")[] = format === "both" ? ["pptx", "ppsx"] : [format];
   const entries = [];
   for (const f of formats) {
