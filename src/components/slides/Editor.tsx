@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ElementBody, elementBoxStyle, ScaledSlide, SlideStatic, useSlideScale } from "./SlideRender";
 import {
   FONT_STACK, SLIDE_H, SLIDE_W, clearAiChat, loadAiChat, loadDecks, makeElement, makeSlide, saveAiChat, uid, upsertDeck,
