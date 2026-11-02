@@ -17,7 +17,7 @@ import {
   type AiChatMsg, type Deck, type ShapeKind, type Slide, type SlideElement, type SlideLink, type TransitionKind,
 } from "@/lib/deck";
 import type { AiResult } from "@/lib/ai.server";
-import { exportDeck, type ExportFormat } from "@/lib/pptx";
+import { exportDeck, exportSinglePptx, type ExportFormat } from "@/lib/pptx";
 
 const SHAPES: { kind: ShapeKind; icon: typeof Square; label: string }[] = [
   { kind: "rect", icon: Square, label: "Rectangle" },
@@ -141,11 +141,11 @@ export function Editor({ initial }: { initial: Deck }) {
   const present = () => { upsertDeck(deck); navigate({ to: "/view/$deckId", params: { deckId: deck.id }, search: { slide: cur + 1 } }); };
 
   const [exporting, setExporting] = useState(false);
-  const doExport = async (format: ExportFormat) => {
+  const doExport = async (format: ExportFormat | "single") => {
     setExporting(true);
     try {
       upsertDeck(deck);
-      const name = await exportDeck(deck, format);
+      const name = format === "single" ? await exportSinglePptx(deck) : await exportDeck(deck, format);
       toast.success(`Downloaded ${name}`);
     } catch (e) {
       toast.error(`Export failed: ${(e as Error).message}`);
@@ -212,6 +212,8 @@ export function Editor({ initial }: { initial: Deck }) {
             <DropdownMenuItem onClick={() => doExport("pptx")}>PowerPoint (.pptx)</DropdownMenuItem>
             <DropdownMenuItem onClick={() => doExport("ppsx")}>PowerPoint Slideshow (.ppsx)</DropdownMenuItem>
             <DropdownMenuItem onClick={() => doExport("both")}>Both formats</DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => doExport("single")}>iPhone / iPad — PowerPoint file only (no zip)</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
         <Button onClick={present}><Play /> Present</Button>
