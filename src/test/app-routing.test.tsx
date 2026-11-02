@@ -14,4 +14,11 @@ describe("App routing", () => {
 
     expect(matches.at(-1)?.routeId).not.toBe(rootRouteId);
   });
+
+  it("matches the spreadsheet and document editor routes", () => {
+    const router = createRouter({ routeTree, context: { queryClient: new QueryClient() } });
+
+    expect(router.matchRoutes("/spreadsheet/book-1").at(-1)?.routeId).toBe("/spreadsheet/$workbookId");
+    expect(router.matchRoutes("/document/doc-1").at(-1)?.routeId).toBe("/document/$documentId");
+  });
 });

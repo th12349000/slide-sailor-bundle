@@ -1,12 +1,14 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Copy, Loader2, Play, Plus, Sparkles, Trash2, Wand2 } from "lucide-react";
+import { Copy, FileSpreadsheet, FileText, Loader2, Play, Plus, Sparkles, Trash2, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScaledSlide, SlideStatic } from "@/components/slides/SlideRender";
 import { deleteDeck, loadDecks, makeDeck, makeElement, makeSlide, uid, upsertDeck, type Deck, type Slide } from "@/lib/deck";
-import { askSlideAi } from "@/lib/ai.functions";
+import { makeSlidesFromAi } from "@/lib/ai-slide-mapper";
+import { generateSlidesLocally, localAiErrorMessage, localAiStatusLabel, type LocalAiStatus } from "@/lib/local-ai";
+import { deleteDocument, deleteWorkbook, loadDocuments, loadWorkbooks, makeDocument, makeWorkbook, upsertDocument, upsertWorkbook, type OfficeDocument, type Workbook } from "@/lib/office";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -24,10 +26,17 @@ export const Route = createFileRoute("/")({
 
 function Index() {
   const [decks, setDecks] = useState<Deck[]>([]);
+  const [workbooks, setWorkbooks] = useState<Workbook[]>([]);
+  const [documents, setDocuments] = useState<OfficeDocument[]>([]);
   const [aiPrompt, setAiPrompt] = useState("");
   const [building, setBuilding] = useState(false);
+  const [aiStatus, setAiStatus] = useState<LocalAiStatus | null>(null);
   const navigate = useNavigate();
-  useEffect(() => setDecks(loadDecks()), []);
+  useEffect(() => {
+    setDecks(loadDecks());
+    setWorkbooks(loadWorkbooks());
+    setDocuments(loadDocuments());
+  }, []);
 
   const create = () => {
     const d = makeDeck();
@@ -35,43 +44,46 @@ function Index() {
     navigate({ to: "/edit/$deckId", params: { deckId: d.id } });
   };
 
+  const createWorkbook = () => {
+    const workbook = makeWorkbook();
+    upsertWorkbook(workbook);
+    navigate({ to: "/spreadsheet/$workbookId", params: { workbookId: workbook.id } });
+  };
+
+  const createDocument = () => {
+    const document = makeDocument();
+    upsertDocument(document);
+    navigate({ to: "/document/$documentId", params: { documentId: document.id } });
+  };
+
+  const refreshLibrary = () => {
+    setDecks(loadDecks());
+    setWorkbooks(loadWorkbooks());
+    setDocuments(loadDocuments());
+  };
+
   const buildWithAi = async () => {
     const topic = aiPrompt.trim();
     if (!topic || building) return;
     setBuilding(true);
     try {
-      const res = await askSlideAi({
-        data: {
-          prompt: `Build a complete, polished presentation from scratch about: ${topic}. Use mode "replace_all" with 5-8 slides: a strong title slide, an agenda, content slides with one idea each, and a closing slide. Vary the layouts and use a bold, consistent color palette.`,
-          deckJson: JSON.stringify({ title: topic, slides: [] }),
-          currentIndex: 0,
-        },
+      const result = await generateSlidesLocally({
+        prompt: `Build a complete, polished presentation from scratch about: ${topic}. Use mode "replace_all" with 5-8 slides: a strong title slide, an agenda, content slides with one idea each, and a closing slide. Vary the layouts and use a bold, consistent color palette. Include relevant licensed photos when available.`,
+        deckJson: JSON.stringify({ title: topic, slides: [] }),
+        currentIndex: 0,
+        onStatus: setAiStatus,
       });
-      if (!res.ok) { toast.error(res.error); return; }
-      const r = res.result;
-      if (!r.slides.length) { toast.error("The AI didn't produce any slides — try rephrasing."); return; }
-      const slides: Slide[] = r.slides.map((s) =>
-        makeSlide({
-          background: s.background,
-          notes: s.notes,
-          elements: s.elements.map((e) =>
-            makeElement(e.type, {
-              x: e.x, y: e.y, w: e.w, h: e.h, text: e.text, fontSize: e.fontSize, fontFamily: e.fontFamily, color: e.color,
-              bold: e.bold, italic: e.italic, align: e.align, fill: e.fill, borderColor: e.borderColor, borderWidth: e.borderWidth,
-              radius: e.radius, shape: e.shape, src: e.imageUrl,
-              link: e.linkUrl ? { kind: "url", url: e.linkUrl } : e.linkSlideIndex !== null ? { kind: "slide", slideIndex: e.linkSlideIndex } : null,
-            }),
-          ),
-        }),
-      );
+      if (!result.slides.length) { toast.error("The local AI didn't produce any slides — try a shorter prompt."); return; }
+      const slides: Slide[] = makeSlidesFromAi(result.slides);
       const d = makeDeck(topic.slice(0, 60));
       d.slides = slides;
       upsertDeck(d);
       navigate({ to: "/edit/$deckId", params: { deckId: d.id } });
     } catch (e) {
-      toast.error((e as Error).message || "Something went wrong.");
+      toast.error(localAiErrorMessage(e));
     } finally {
       setBuilding(false);
+      setAiStatus(null);
     }
   };
 
@@ -82,18 +94,23 @@ function Index() {
           <div className="grid h-9 w-9 place-items-center rounded-lg bg-primary text-primary-foreground font-display font-extrabold">S</div>
           <span className="font-display text-xl font-bold">SlideForge</span>
         </div>
-        <Button onClick={create}><Plus /> New presentation</Button>
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button onClick={create}><Plus /> <span className="hidden sm:inline">Presentation</span></Button>
+          <Button variant="outline" onClick={createWorkbook}><FileSpreadsheet /> <span className="hidden sm:inline">Spreadsheet</span></Button>
+          <Button variant="outline" onClick={createDocument}><FileText /> <span className="hidden sm:inline">Word document</span></Button>
+        </div>
       </header>
 
       <section className="mx-auto max-w-7xl px-8 pb-10 pt-12">
         <h1 className="max-w-3xl text-6xl font-extrabold leading-[0.95] tracking-tight">
-          Decks that <span className="text-primary">link, move</span> and build themselves.
+          Presentations, <span className="text-primary">spreadsheets</span> and documents.
         </h1>
         <p className="mt-5 max-w-xl text-lg text-muted-foreground">
-          Text, shapes, images and hyperlinks between slides and presentations — with an AI co-designer on call. Export to real PowerPoint files anytime.
+          Create, calculate, write and present in one workspace. Each format has its own AI assistant and Microsoft Office export.
         </p>
         <div className="mt-8 max-w-2xl rounded-2xl border border-border bg-card p-4">
           <div className="mb-2 flex items-center gap-2 text-sm font-semibold"><Wand2 className="h-4 w-4 text-primary" /> Build a whole deck with AI</div>
+          <p className="mb-3 text-xs text-muted-foreground">AI runs in your browser. The model downloads once, then stays cached on this device.</p>
           <Textarea
             value={aiPrompt}
             onChange={(e) => setAiPrompt(e.target.value)}
@@ -104,7 +121,7 @@ function Index() {
           />
           <div className="mt-3 flex gap-3">
             <Button onClick={buildWithAi} disabled={building || !aiPrompt.trim()}>
-              {building ? <Loader2 className="animate-spin" /> : <Sparkles />} {building ? "Building your deck…" : "Build it"}
+              {building ? <Loader2 className="animate-spin" /> : <Sparkles />} {building ? (aiStatus ? localAiStatusLabel(aiStatus) : "Preparing local AI…") : "Build it"}
             </Button>
             <Button variant="outline" onClick={create}><Plus /> Start blank</Button>
           </div>
@@ -137,6 +154,50 @@ function Index() {
                     <Button size="icon" variant="ghost" onClick={() => { if (confirm(`Delete "${d.title}"?`)) { deleteDeck(d.id); setDecks(loadDecks()); } }}><Trash2 /></Button>
                   </div>
                 </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="mx-auto max-w-7xl px-8 pb-12">
+        <div className="mb-5 flex items-center justify-between gap-4">
+          <h2 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">Your spreadsheets</h2>
+          <Button size="sm" variant="ghost" onClick={createWorkbook}><Plus /> New spreadsheet</Button>
+        </div>
+        {workbooks.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Your workbooks will appear here.</p>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {workbooks.map((workbook) => (
+              <div key={workbook.id} className="flex items-center justify-between gap-3 border-b border-border py-3">
+                <Link to="/spreadsheet/$workbookId" params={{ workbookId: workbook.id }} className="flex min-w-0 items-center gap-3 hover:text-primary">
+                  <FileSpreadsheet className="h-5 w-5 shrink-0 text-emerald-500" />
+                  <span className="min-w-0"><span className="block truncate font-semibold">{workbook.title}</span><span className="block text-xs text-muted-foreground">{workbook.sheets.length} sheets · {new Date(workbook.updatedAt).toLocaleDateString()}</span></span>
+                </Link>
+                <Button size="icon" variant="ghost" aria-label={`Delete ${workbook.title}`} onClick={() => { if (confirm(`Delete "${workbook.title}"?`)) { deleteWorkbook(workbook.id); refreshLibrary(); } }}><Trash2 /></Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="mx-auto max-w-7xl px-8 pb-24">
+        <div className="mb-5 flex items-center justify-between gap-4">
+          <h2 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">Your Word documents</h2>
+          <Button size="sm" variant="ghost" onClick={createDocument}><Plus /> New document</Button>
+        </div>
+        {documents.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Your documents will appear here.</p>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {documents.map((document) => (
+              <div key={document.id} className="flex items-center justify-between gap-3 border-b border-border py-3">
+                <Link to="/document/$documentId" params={{ documentId: document.id }} className="flex min-w-0 items-center gap-3 hover:text-primary">
+                  <FileText className="h-5 w-5 shrink-0 text-sky-400" />
+                  <span className="min-w-0"><span className="block truncate font-semibold">{document.title}</span><span className="block text-xs text-muted-foreground">Word document · {new Date(document.updatedAt).toLocaleDateString()}</span></span>
+                </Link>
+                <Button size="icon" variant="ghost" aria-label={`Delete ${document.title}`} onClick={() => { if (confirm(`Delete "${document.title}"?`)) { deleteDocument(document.id); refreshLibrary(); } }}><Trash2 /></Button>
               </div>
             ))}
           </div>

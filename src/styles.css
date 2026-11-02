@@ -140,3 +140,31 @@
 .sf-wipe-prev { animation-name: sf-wipe-prev; }
 .glow-primary { box-shadow: 0 0 0 1px var(--primary), 0 10px 40px -10px oklch(0.91 0.2 125 / 45%); }
 .slide-shadow { box-shadow: 0 30px 80px -20px oklch(0 0 0 / 60%); }
+
+.office-grid { min-width: max-content; table-layout: fixed; color: var(--color-foreground); font-size: 12px; }
+.office-grid-corner, .office-grid-column, .office-grid-row { height: 30px; border-right: 1px solid var(--color-border); border-bottom: 1px solid var(--color-border); background: var(--color-secondary); color: var(--color-muted-foreground); font-size: 11px; font-weight: 500; text-align: center; }
+.office-grid-corner { left: 0; width: 48px; min-width: 48px; }
+.office-grid-column { width: 112px; min-width: 112px; }
+.office-grid-row { width: 48px; min-width: 48px; }
+.office-grid-cell { width: 112px; min-width: 112px; max-width: 112px; height: 31px; border-right: 1px solid var(--color-border); border-bottom: 1px solid var(--color-border); overflow: hidden; padding: 0 7px; white-space: nowrap; }
+.office-grid-cell.is-selected { outline: 2px solid var(--color-primary); outline-offset: -2px; }
+.office-grid-cell input { width: 100%; height: 100%; border: 0; outline: 0; background: transparent; color: inherit; font: inherit; }
+.office-grid-cell:focus-within { outline: 2px solid var(--color-primary); outline-offset: -2px; }
+.document-prose { min-height: 760px; outline: none; font-family: Georgia, "Times New Roman", serif; font-size: 16px; line-height: 1.75; color: #202124; }
+.document-prose h1 { margin: 0.9em 0 0.45em; font-family: var(--font-display); font-size: 2.2rem; line-height: 1.15; }
+.document-prose h2 { margin: 0.85em 0 0.4em; font-family: var(--font-display); font-size: 1.55rem; line-height: 1.25; }
+.document-prose h3 { margin: 0.75em 0 0.35em; font-size: 1.2rem; }
+.document-prose p { margin: 0.75em 0; }
+.document-prose ul, .document-prose ol { margin: 0.75em 0; padding-left: 1.7em; }
+.document-prose blockquote { margin: 1em 0; border-left: 3px solid #166d62; padding-left: 1em; color: #555b61; }
+.document-prose pre { overflow-x: auto; border-radius: 4px; background: #f0f1f2; padding: 12px; font-family: monospace; }
+.document-prose table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.document-prose th, .document-prose td { min-width: 80px; border: 1px solid #b9bec5; padding: 7px 9px; vertical-align: top; }
+.document-prose th { background: #eef0f1; font-weight: 700; }
+.document-prose .selectedCell { background: #e6f4f1; }
+
+@media (max-width: 640px) {
+  .document-prose { min-height: 580px; font-size: 15px; }
+  .document-prose h1 { font-size: 1.8rem; }
+  .document-prose h2 { font-size: 1.4rem; }
+}

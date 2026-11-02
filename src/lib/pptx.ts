@@ -295,7 +295,9 @@ async function postProcess(buf: ArrayBuffer, deck: Deck, slideshow: boolean): Pr
 
   const bytes = await writeZip(entries);
   return new Blob([bytes as BlobPart], {
-    type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    type: slideshow
+      ? "application/vnd.openxmlformats-officedocument.presentationml.slideshow"
+      : "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   });
 }
 
@@ -354,9 +356,29 @@ export async function exportSinglePptx(deck: Deck): Promise<string> {
   return name;
 }
 
-/** Export as a ZIP containing a folder named after the deck with the presentation file(s) inside. */
+async function deliverPresentation(blob: Blob, filename: string, share: boolean) {
+  const file = new File([blob], filename, { type: blob.type });
+  const nav = navigator as Navigator & { canShare?: (data: ShareData) => boolean };
+  if (share && nav.share && nav.canShare?.({ files: [file] })) {
+    try {
+      await nav.share({ files: [file], title: filename });
+      return;
+    } catch (error) {
+      if ((error as Error).name === "AbortError") return;
+    }
+  }
+  downloadBlob(file, filename);
+}
+
+/** Single-format exports are real Office files; the combined option remains a ZIP. */
 export async function exportDeck(deck: Deck, format: ExportFormat) {
   const safe = safeName(deck);
+  if (format !== "both") {
+    const filename = `${safe}.${format}`;
+    await deliverPresentation(await buildPresentationFile(deck, format === "ppsx"), filename, true);
+    return filename;
+  }
+
   const formats: ("pptx" | "ppsx")[] = format === "both" ? ["pptx", "ppsx"] : [format];
   const entries = [];
   for (const f of formats) {

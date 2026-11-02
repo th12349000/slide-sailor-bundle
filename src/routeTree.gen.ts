@@ -10,8 +10,9 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as ApiSlideAiRouteImport } from './routes/api/slide-ai'
+import { Route as DocumentDocumentIdRouteImport } from './routes/document.$documentId'
 import { Route as EditDeckIdRouteImport } from './routes/edit.$deckId'
+import { Route as SpreadsheetWorkbookIdRouteImport } from './routes/spreadsheet.$workbookId'
 import { Route as ViewDeckIdRouteImport } from './routes/view.$deckId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -19,14 +20,19 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiSlideAiRoute = ApiSlideAiRouteImport.update({
-  id: '/api/slide-ai',
-  path: '/api/slide-ai',
+const DocumentDocumentIdRoute = DocumentDocumentIdRouteImport.update({
+  id: '/document/$documentId',
+  path: '/document/$documentId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EditDeckIdRoute = EditDeckIdRouteImport.update({
   id: '/edit/$deckId',
   path: '/edit/$deckId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SpreadsheetWorkbookIdRoute = SpreadsheetWorkbookIdRouteImport.update({
+  id: '/spreadsheet/$workbookId',
+  path: '/spreadsheet/$workbookId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ViewDeckIdRoute = ViewDeckIdRouteImport.update({
@@ -37,35 +43,55 @@ const ViewDeckIdRoute = ViewDeckIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/api/slide-ai': typeof ApiSlideAiRoute
+  '/document/$documentId': typeof DocumentDocumentIdRoute
   '/edit/$deckId': typeof EditDeckIdRoute
+  '/spreadsheet/$workbookId': typeof SpreadsheetWorkbookIdRoute
   '/view/$deckId': typeof ViewDeckIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/api/slide-ai': typeof ApiSlideAiRoute
+  '/document/$documentId': typeof DocumentDocumentIdRoute
   '/edit/$deckId': typeof EditDeckIdRoute
+  '/spreadsheet/$workbookId': typeof SpreadsheetWorkbookIdRoute
   '/view/$deckId': typeof ViewDeckIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/api/slide-ai': typeof ApiSlideAiRoute
+  '/document/$documentId': typeof DocumentDocumentIdRoute
   '/edit/$deckId': typeof EditDeckIdRoute
+  '/spreadsheet/$workbookId': typeof SpreadsheetWorkbookIdRoute
   '/view/$deckId': typeof ViewDeckIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/slide-ai' | '/edit/$deckId' | '/view/$deckId'
+  fullPaths:
+    | '/'
+    | '/document/$documentId'
+    | '/edit/$deckId'
+    | '/spreadsheet/$workbookId'
+    | '/view/$deckId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/slide-ai' | '/edit/$deckId' | '/view/$deckId'
-  id: '__root__' | '/' | '/api/slide-ai' | '/edit/$deckId' | '/view/$deckId'
+  to:
+    | '/'
+    | '/document/$documentId'
+    | '/edit/$deckId'
+    | '/spreadsheet/$workbookId'
+    | '/view/$deckId'
+  id:
+    | '__root__'
+    | '/'
+    | '/document/$documentId'
+    | '/edit/$deckId'
+    | '/spreadsheet/$workbookId'
+    | '/view/$deckId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  ApiSlideAiRoute: typeof ApiSlideAiRoute
+  DocumentDocumentIdRoute: typeof DocumentDocumentIdRoute
   EditDeckIdRoute: typeof EditDeckIdRoute
+  SpreadsheetWorkbookIdRoute: typeof SpreadsheetWorkbookIdRoute
   ViewDeckIdRoute: typeof ViewDeckIdRoute
 }
 
@@ -78,11 +104,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/slide-ai': {
-      id: '/api/slide-ai'
-      path: '/api/slide-ai'
-      fullPath: '/api/slide-ai'
-      preLoaderRoute: typeof ApiSlideAiRouteImport
+    '/document/$documentId': {
+      id: '/document/$documentId'
+      path: '/document/$documentId'
+      fullPath: '/document/$documentId'
+      preLoaderRoute: typeof DocumentDocumentIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/edit/$deckId': {
@@ -90,6 +116,13 @@ declare module '@tanstack/react-router' {
       path: '/edit/$deckId'
       fullPath: '/edit/$deckId'
       preLoaderRoute: typeof EditDeckIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/spreadsheet/$workbookId': {
+      id: '/spreadsheet/$workbookId'
+      path: '/spreadsheet/$workbookId'
+      fullPath: '/spreadsheet/$workbookId'
+      preLoaderRoute: typeof SpreadsheetWorkbookIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/view/$deckId': {
@@ -104,8 +137,9 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  ApiSlideAiRoute: ApiSlideAiRoute,
+  DocumentDocumentIdRoute: DocumentDocumentIdRoute,
   EditDeckIdRoute: EditDeckIdRoute,
+  SpreadsheetWorkbookIdRoute: SpreadsheetWorkbookIdRoute,
   ViewDeckIdRoute: ViewDeckIdRoute,
 }
 export const routeTree = rootRouteImport

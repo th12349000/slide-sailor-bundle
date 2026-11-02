@@ -1,3 +1,4 @@
+import { makeSlidesFromAi } from "@/lib/ai-slide-mapper";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -16,7 +17,7 @@ import {
   FONT_STACK, SLIDE_H, SLIDE_W, clearAiChat, loadAiChat, loadDecks, makeElement, makeSlide, saveAiChat, uid, upsertDeck,
   type AiChatMsg, type Deck, type ShapeKind, type Slide, type SlideElement, type SlideLink, type TransitionKind,
 } from "@/lib/deck";
-import type { AiResult } from "@/lib/ai.server";
+import { generateSlidesLocally, localAiErrorMessage, localAiStatusLabel } from "@/lib/local-ai";
 import { exportDeck, exportSinglePptx, type ExportFormat } from "@/lib/pptx";
 
 const SHAPES: { kind: ShapeKind; icon: typeof Square; label: string }[] = [
@@ -145,8 +146,14 @@ export function Editor({ initial }: { initial: Deck }) {
     setExporting(true);
     try {
       upsertDeck(deck);
-      const name = format === "single" ? await exportSinglePptx(deck) : await exportDeck(deck, format);
-      toast.success(`Downloaded ${name}`);
+      const isAppleMobile =
+        /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+        (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+      const useShareSheet = format === "single" || (format === "pptx" && isAppleMobile);
+      const name = useShareSheet
+        ? await exportSinglePptx(deck)
+        : await exportDeck(deck, format as ExportFormat);
+      toast.success(`Export ready: ${name}`);
     } catch (e) {
       toast.error(`Export failed: ${(e as Error).message}`);
     } finally {
@@ -211,7 +218,7 @@ export function Editor({ initial }: { initial: Deck }) {
           <DropdownMenuContent>
             <DropdownMenuItem onClick={() => doExport("pptx")}>PowerPoint (.pptx)</DropdownMenuItem>
             <DropdownMenuItem onClick={() => doExport("ppsx")}>PowerPoint Slideshow (.ppsx)</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => doExport("both")}>Both formats</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => doExport("both")}>Both formats (ZIP)</DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => doExport("single")}>iPhone / iPad — PowerPoint file only (no zip)</DropdownMenuItem>
           </DropdownMenuContent>
@@ -598,7 +605,7 @@ function slideLabel(s: Slide) {
   return t ? ` — ${t.slice(0, 30)}` : "";
 }
 
-const GREETING: AiChatMsg = { role: "ai", text: "Hi! I'm your deck builder. Describe the presentation you want — e.g. “Build a 6-slide pitch about solar bikes” — or ask me to redesign, add or polish slides. I remember our chat, so you can build on earlier requests." };
+const GREETING: AiChatMsg = { role: "ai", text: "Hi! I'm your deck builder. Describe the presentation you want, or ask me to redesign, add or polish slides. AI runs in your browser; its model downloads once and stays cached on this device." };
 
 function AiPanel({ deck, cur, apply }: { deck: Deck; cur: number; apply: (fn: (d: Deck) => Deck, cur?: number) => void }) {
   const [msgs, setMsgs] = useState<AiChatMsg[]>(() => {
@@ -636,47 +643,19 @@ function AiPanel({ deck, cur, apply }: { deck: Deck; cur: number; apply: (fn: (d
       // include recent chat so follow-ups like "make it darker" have context
       const history = msgs.filter((m) => m !== GREETING).slice(-12).map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.text}`).join("\n");
       const fullPrompt = history ? `Conversation so far:\n${history}\n\nNew request: ${prompt}` : prompt;
-      const resp = await fetch("/api/slide-ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: fullPrompt, deckJson: JSON.stringify(stripped), currentIndex: cur }),
+      const r = await generateSlidesLocally({
+        prompt: fullPrompt,
+        deckJson: JSON.stringify(stripped),
+        currentIndex: cur,
+        onStatus: (status) => setProgress((current) => ({ ...current, title: localAiStatusLabel(status) })),
       });
-      if (!resp.ok || !resp.body) throw new Error(`The AI request failed (${resp.status}).`);
-      const reader = resp.body.pipeThrough(new TextDecoderStream()).getReader();
-      let buf = "";
-      let r: AiResult | null = null;
-      let failure: string | null = null;
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += value;
-        let nl: number;
-        while ((nl = buf.indexOf("\n")) >= 0) {
-          const line = buf.slice(0, nl).trim();
-          buf = buf.slice(nl + 1);
-          if (!line) continue;
-          const ev = JSON.parse(line);
-          if (ev.type === "reasoning") setProgress((p) => ({ ...p, thinking: (p.thinking + ev.text).slice(-600) }));
-          else if (ev.type === "progress") setProgress((p) => ({ ...p, slides: ev.slides, elements: ev.elements, title: ev.currentTitle || p.title }));
-          else if (ev.type === "done") r = ev.result;
-          else if (ev.type === "error") failure = ev.error;
-        }
-      }
-      if (failure || !r) { setMsgs((m) => [...m, { role: "ai", text: `⚠️ ${failure ?? "The AI stopped before finishing."}` }]); return; }
-      const newSlides: Slide[] = r.slides.map((s) =>
-        makeSlide({
-          background: s.background,
-          notes: s.notes,
-          elements: s.elements.map((e) =>
-            makeElement(e.type, {
-              x: e.x, y: e.y, w: e.w, h: e.h, text: e.text, fontSize: e.fontSize, fontFamily: e.fontFamily, color: e.color,
-              bold: e.bold, italic: e.italic, align: e.align, fill: e.fill, borderColor: e.borderColor, borderWidth: e.borderWidth,
-              radius: e.radius, shape: e.shape, src: e.imageUrl,
-              link: e.linkUrl ? { kind: "url", url: e.linkUrl } : e.linkSlideIndex !== null ? { kind: "slide", slideIndex: e.linkSlideIndex } : null,
-            }),
-          ),
-        }),
-      );
+      setProgress((current) => ({
+        ...current,
+        slides: r.slides.length,
+        elements: r.slides.reduce((count, item) => count + item.elements.length, 0),
+        title: "Applying local AI changes…",
+      }));
+      const newSlides: Slide[] = makeSlidesFromAi(r.slides);
       if (newSlides.length && r.mode !== "none") {
         if (r.mode === "replace_all") apply((d) => ({ ...d, slides: newSlides }), 0);
         else if (r.mode === "replace_current") apply((d) => { const s = [...d.slides]; s.splice(cur, 1, ...newSlides); return { ...d, slides: s }; }, cur);
@@ -684,7 +663,7 @@ function AiPanel({ deck, cur, apply }: { deck: Deck; cur: number; apply: (fn: (d
       }
       setMsgs((m) => [...m, { role: "ai", text: r.reply + (newSlides.length && r.mode !== "none" ? "  (Ctrl+Z to undo)" : "") }]);
     } catch (e) {
-      setMsgs((m) => [...m, { role: "ai", text: `⚠️ ${(e as Error).message || "Something went wrong."}` }]);
+      setMsgs((m) => [...m, { role: "ai", text: `⚠️ ${localAiErrorMessage(e)}` }]);
     } finally {
       setBusy(false);
     }
@@ -720,9 +699,9 @@ function AiPanel({ deck, cur, apply }: { deck: Deck; cur: number; apply: (fn: (d
 }
 
 function AiProgressCard({ progress, seconds }: { progress: { slides: number; elements: number; title: string; thinking: string }; seconds: number }) {
-  const step = progress.slides > 0
+  const step = progress.title || (progress.slides > 0
     ? `Building slide ${progress.slides}${progress.title ? ` — “${progress.title}”` : ""}`
-    : progress.thinking ? "Planning the design…" : "Starting up…";
+    : progress.thinking ? "Planning the design…" : "Starting up…");
   const thought = progress.thinking.replace(/\*\*/g, "").trim().split("\n").filter(Boolean).slice(-3).join("\n");
   return (
     <div className="mr-6 space-y-2 rounded-xl bg-secondary px-3 py-2 text-sm" aria-live="polite">
