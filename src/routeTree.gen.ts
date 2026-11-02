@@ -10,12 +10,18 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiSlideAiRouteImport } from './routes/api/slide-ai'
 import { Route as EditDeckIdRouteImport } from './routes/edit.$deckId'
 import { Route as ViewDeckIdRouteImport } from './routes/view.$deckId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSlideAiRoute = ApiSlideAiRouteImport.update({
+  id: '/api/slide-ai',
+  path: '/api/slide-ai',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EditDeckIdRoute = EditDeckIdRouteImport.update({
@@ -31,30 +37,34 @@ const ViewDeckIdRoute = ViewDeckIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/api/slide-ai': typeof ApiSlideAiRoute
   '/edit/$deckId': typeof EditDeckIdRoute
   '/view/$deckId': typeof ViewDeckIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/api/slide-ai': typeof ApiSlideAiRoute
   '/edit/$deckId': typeof EditDeckIdRoute
   '/view/$deckId': typeof ViewDeckIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/api/slide-ai': typeof ApiSlideAiRoute
   '/edit/$deckId': typeof EditDeckIdRoute
   '/view/$deckId': typeof ViewDeckIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/edit/$deckId' | '/view/$deckId'
+  fullPaths: '/' | '/api/slide-ai' | '/edit/$deckId' | '/view/$deckId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/edit/$deckId' | '/view/$deckId'
-  id: '__root__' | '/' | '/edit/$deckId' | '/view/$deckId'
+  to: '/' | '/api/slide-ai' | '/edit/$deckId' | '/view/$deckId'
+  id: '__root__' | '/' | '/api/slide-ai' | '/edit/$deckId' | '/view/$deckId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ApiSlideAiRoute: typeof ApiSlideAiRoute
   EditDeckIdRoute: typeof EditDeckIdRoute
   ViewDeckIdRoute: typeof ViewDeckIdRoute
 }
@@ -66,6 +76,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/slide-ai': {
+      id: '/api/slide-ai'
+      path: '/api/slide-ai'
+      fullPath: '/api/slide-ai'
+      preLoaderRoute: typeof ApiSlideAiRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/edit/$deckId': {
@@ -87,6 +104,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ApiSlideAiRoute: ApiSlideAiRoute,
   EditDeckIdRoute: EditDeckIdRoute,
   ViewDeckIdRoute: ViewDeckIdRoute,
 }

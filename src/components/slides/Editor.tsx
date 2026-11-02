@@ -16,7 +16,7 @@ import {
   FONT_STACK, SLIDE_H, SLIDE_W, clearAiChat, loadAiChat, loadDecks, makeElement, makeSlide, saveAiChat, uid, upsertDeck,
   type AiChatMsg, type Deck, type ShapeKind, type Slide, type SlideElement, type SlideLink, type TransitionKind,
 } from "@/lib/deck";
-import { askSlideAi } from "@/lib/ai.functions";
+import type { AiResult } from "@/lib/ai.server";
 import { exportDeck, type ExportFormat } from "@/lib/pptx";
 
 const SHAPES: { kind: ShapeKind; icon: typeof Square; label: string }[] = [
@@ -605,6 +605,13 @@ function AiPanel({ deck, cur, apply }: { deck: Deck; cur: number; apply: (fn: (d
   });
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<{ slides: number; elements: number; title: string; thinking: string; started: number }>({ slides: 0, elements: 0, title: "", thinking: "", started: 0 });
+  const [now, setNow] = useState(0);
+  useEffect(() => {
+    if (!busy) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [busy]);
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), [msgs]);
@@ -617,6 +624,8 @@ function AiPanel({ deck, cur, apply }: { deck: Deck; cur: number; apply: (fn: (d
     setInput("");
     setMsgs((m) => [...m, { role: "user", text: prompt }]);
     setBusy(true);
+    setProgress({ slides: 0, elements: 0, title: "", thinking: "", started: Date.now() });
+    setNow(Date.now());
     try {
       const stripped = {
         title: deck.title,
@@ -625,9 +634,33 @@ function AiPanel({ deck, cur, apply }: { deck: Deck; cur: number; apply: (fn: (d
       // include recent chat so follow-ups like "make it darker" have context
       const history = msgs.filter((m) => m !== GREETING).slice(-12).map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.text}`).join("\n");
       const fullPrompt = history ? `Conversation so far:\n${history}\n\nNew request: ${prompt}` : prompt;
-      const res = await askSlideAi({ data: { prompt: fullPrompt, deckJson: JSON.stringify(stripped), currentIndex: cur } });
-      if (!res.ok) { setMsgs((m) => [...m, { role: "ai", text: `⚠️ ${res.error}` }]); return; }
-      const r = res.result;
+      const resp = await fetch("/api/slide-ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: fullPrompt, deckJson: JSON.stringify(stripped), currentIndex: cur }),
+      });
+      if (!resp.ok || !resp.body) throw new Error(`The AI request failed (${resp.status}).`);
+      const reader = resp.body.pipeThrough(new TextDecoderStream()).getReader();
+      let buf = "";
+      let r: AiResult | null = null;
+      let failure: string | null = null;
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += value;
+        let nl: number;
+        while ((nl = buf.indexOf("\n")) >= 0) {
+          const line = buf.slice(0, nl).trim();
+          buf = buf.slice(nl + 1);
+          if (!line) continue;
+          const ev = JSON.parse(line);
+          if (ev.type === "reasoning") setProgress((p) => ({ ...p, thinking: (p.thinking + ev.text).slice(-600) }));
+          else if (ev.type === "progress") setProgress((p) => ({ ...p, slides: ev.slides, elements: ev.elements, title: ev.currentTitle || p.title }));
+          else if (ev.type === "done") r = ev.result;
+          else if (ev.type === "error") failure = ev.error;
+        }
+      }
+      if (failure || !r) { setMsgs((m) => [...m, { role: "ai", text: `⚠️ ${failure ?? "The AI stopped before finishing."}` }]); return; }
       const newSlides: Slide[] = r.slides.map((s) =>
         makeSlide({
           background: s.background,
@@ -668,7 +701,7 @@ function AiPanel({ deck, cur, apply }: { deck: Deck; cur: number; apply: (fn: (d
         {msgs.map((m, i) => (
           <div key={i} className={`rounded-xl px-3 py-2 text-sm whitespace-pre-wrap ${m.role === "user" ? "ml-6 bg-primary text-primary-foreground" : "mr-6 bg-secondary"}`}>{m.text}</div>
         ))}
-        {busy && <div className="mr-6 flex items-center gap-2 rounded-xl bg-secondary px-3 py-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Designing…</div>}
+        {busy && <AiProgressCard progress={progress} seconds={Math.max(0, Math.round((now - progress.started) / 1000))} />}
         {msgs.length === 1 && !busy && (
           <div className="flex flex-wrap gap-2 pt-2">
             {ideas.map((i) => <button key={i} onClick={() => i.endsWith("…") ? setInput("Build a full deck about ") : send(i)} className="rounded-full border border-border px-3 py-1 text-xs hover:border-primary hover:text-primary">{i}</button>)}
@@ -680,6 +713,31 @@ function AiPanel({ deck, cur, apply }: { deck: Deck; cur: number; apply: (fn: (d
         <Textarea ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="Describe what to build or change…" rows={2} className="resize-none" />
         <Button type="submit" size="icon" disabled={busy} className="self-end" aria-label="Send"><Send /></Button>
       </form>
+    </div>
+  );
+}
+
+function AiProgressCard({ progress, seconds }: { progress: { slides: number; elements: number; title: string; thinking: string }; seconds: number }) {
+  const step = progress.slides > 0
+    ? `Building slide ${progress.slides}${progress.title ? ` — “${progress.title}”` : ""}`
+    : progress.thinking ? "Planning the design…" : "Starting up…";
+  const thought = progress.thinking.replace(/\*\*/g, "").trim().split("\n").filter(Boolean).slice(-3).join("\n");
+  return (
+    <div className="mr-6 space-y-2 rounded-xl bg-secondary px-3 py-2 text-sm" aria-live="polite">
+      <div className="flex items-center gap-2 font-medium">
+        <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+        <span className="flex-1 truncate">{step}</span>
+        <span className="text-xs tabular-nums text-muted-foreground">{seconds}s</span>
+      </div>
+      {progress.slides > 0 && (
+        <div className="space-y-1">
+          <div className="h-1.5 overflow-hidden rounded-full bg-border">
+            <div className="h-full rounded-full bg-primary transition-all duration-500" style={{ width: `${Math.min(95, 15 + progress.slides * 12)}%` }} />
+          </div>
+          <p className="text-xs text-muted-foreground">{progress.slides} slide{progress.slides === 1 ? "" : "s"} · {progress.elements} item{progress.elements === 1 ? "" : "s"} so far</p>
+        </div>
+      )}
+      {thought && <p className="line-clamp-3 whitespace-pre-wrap text-xs italic text-muted-foreground">{thought}</p>}
     </div>
   );
 }
