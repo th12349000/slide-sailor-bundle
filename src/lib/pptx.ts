@@ -16,7 +16,65 @@ const FONT_FACE: Record<SlideElement["fontFamily"], string> = {
   mono: "Consolas",
 };
 
-const hex = (c: string) => (c.startsWith("#") ? c.slice(1) : c);
+const NAMED: Record<string, string> = {
+  white: "FFFFFF", black: "000000", red: "FF0000", green: "008000", blue: "0000FF", yellow: "FFFF00",
+  orange: "FFA500", purple: "800080", gray: "808080", grey: "808080", pink: "FFC0CB", navy: "000080",
+  teal: "008080", silver: "C0C0C0", gold: "FFD700", brown: "A52A2A", cyan: "00FFFF", magenta: "FF00FF",
+};
+const h2 = (n: number) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0");
+
+/** Normalize any CSS-ish color to the 6-digit RRGGBB PowerPoint requires (it rejects files with anything else). */
+export function toHex6(c: string | undefined | null, fallback = "000000"): string {
+  const v = (c ?? "").trim().toLowerCase();
+  let m = v.match(/^#?([0-9a-f]{6})([0-9a-f]{2})?$/);
+  if (m) return m[1]!.toUpperCase();
+  m = v.match(/^#?([0-9a-f])([0-9a-f])([0-9a-f])([0-9a-f])?$/);
+  if (m) return (m[1]! + m[1] + m[2] + m[2] + m[3] + m[3]).toUpperCase();
+  m = v.match(/^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/);
+  if (m) return (h2(+m[1]!) + h2(+m[2]!) + h2(+m[3]!)).toUpperCase();
+  if (NAMED[v]) return NAMED[v]!;
+  return fallback;
+}
+const hex = (c: string, fallback?: string) => toHex6(c, fallback);
+const isClear = (c: string | undefined) => !c || /^(transparent|none)$/i.test(c.trim()) || /^rgba\(.*,\s*0(\.0+)?\s*\)$/i.test(c.trim());
+
+// Characters that are illegal in XML 1.0 — one stray control char makes PowerPoint refuse the whole file.
+// eslint-disable-next-line no-control-regex
+const cleanText = (t: string) => (t ?? "").replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g, "").replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "");
+const num = (n: unknown, d: number) => (typeof n === "number" && Number.isFinite(n) ? n : d);
+
+/** Make every value safe for strict OOXML readers (PowerPoint) — Google Slides tolerates junk that PowerPoint rejects. */
+export function sanitizeElement(el: SlideElement): SlideElement {
+  return {
+    ...el,
+    x: num(el.x, 0),
+    y: num(el.y, 0),
+    w: Math.max(2, num(el.w, 100)),
+    h: Math.max(2, num(el.h, 100)),
+    rotation: ((num(el.rotation, 0) % 360) + 360) % 360,
+    opacity: Math.min(1, Math.max(0, num(el.opacity, 1))),
+    fontSize: Math.min(800, Math.max(8, num(el.fontSize, 40))),
+    borderWidth: Math.min(100, Math.max(0, num(el.borderWidth, 0))),
+    radius: Math.max(0, num(el.radius, 0)),
+    text: cleanText(el.text ?? ""),
+    color: hex(el.color, "1B1B1F"),
+    fill: isClear(el.fill) ? "transparent" : hex(el.fill, "C6F432"),
+    borderColor: hex(el.borderColor, "1B1B1F"),
+    fontFamily: FONT_FACE[el.fontFamily] ? el.fontFamily : "sans",
+    align: ["left", "center", "right"].includes(el.align) ? el.align : "left",
+  };
+}
+
+function safeUrl(u: string): string | null {
+  const t = u.trim();
+  if (!t) return null;
+  const full = /^(https?:|mailto:)/i.test(t) ? t : `https://${t}`;
+  try {
+    return /^mailto:/i.test(full) ? encodeURI(decodeURI(full)) : new URL(full).href;
+  } catch {
+    return null;
+  }
+}
 
 const SAFE_IMAGE = /^data:image\/(png|jpe?g|gif);base64,/i;
 
@@ -88,9 +146,10 @@ function shapeType(el: SlideElement): string {
 
 async function addElement(slide: PptxGenJS.Slide, el: SlideElement, slideCount: number) {
   const box = { x: ix(el.x), y: ix(el.y), w: ix(el.w), h: ix(el.h), rotate: el.rotation || 0 };
+  const linkUrl = el.link?.kind === "url" ? safeUrl(el.link.url) : null;
   const hyperlink =
-    el.link?.kind === "url" && el.link.url.trim()
-      ? { url: /^(https?:|mailto:)/i.test(el.link.url) ? el.link.url : `https://${el.link.url}` }
+    linkUrl
+      ? { url: linkUrl }
       : el.link?.kind === "slide" && el.link.slideIndex >= 0 && el.link.slideIndex < slideCount
         ? { slide: el.link.slideIndex + 1 }
         : undefined;
@@ -104,13 +163,13 @@ async function addElement(slide: PptxGenJS.Slide, el: SlideElement, slideCount: 
   }
 
   const transparency = Math.round((1 - el.opacity) * 100);
-  const hasFill = el.fill && el.fill !== "transparent";
+  const hasFill = !isClear(el.fill);
   const line = el.borderWidth > 0 ? { color: hex(el.borderColor), width: pt(el.borderWidth) / 8 } : { type: "none" as const };
 
   if (el.type === "shape" && el.shape === "line") {
     slide.addShape("line", {
       ...box,
-      line: { color: hex(el.fill === "transparent" ? el.borderColor : el.fill), width: Math.max(1, pt(Math.max(4, el.borderWidth)) / 8) },
+      line: { color: hex(isClear(el.fill) ? el.borderColor : el.fill), width: Math.max(1, pt(Math.max(4, el.borderWidth)) / 8) },
     });
     return;
   }
@@ -220,13 +279,14 @@ export async function buildPresentationFile(deck: Deck, slideshow: boolean): Pro
   const pptx = new PptxGenJS();
   pptx.defineLayout({ name: "SF", width: 13.333, height: 7.5 });
   pptx.layout = "SF";
-  pptx.title = deck.title;
+  pptx.title = cleanText(deck.title) || "Presentation";
 
   for (const s of deck.slides) {
     const slide = pptx.addSlide();
-    slide.background = { color: hex(s.background) };
-    if (s.notes) slide.addNotes(s.notes);
-    for (const el of s.elements) await addElement(slide, el, deck.slides.length);
+    slide.background = { color: hex(s.background, "FFFFFF") };
+    const notes = cleanText(s.notes ?? "");
+    if (notes) slide.addNotes(notes);
+    for (const el of s.elements ?? []) await addElement(slide, sanitizeElement(el), deck.slides.length);
   }
 
   const buf = (await pptx.write({ outputType: "arraybuffer" })) as ArrayBuffer;
