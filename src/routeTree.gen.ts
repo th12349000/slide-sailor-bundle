@@ -10,33 +10,53 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as EditDeckIdRouteImport } from './routes/edit.$deckId'
+import { Route as ViewDeckIdRouteImport } from './routes/view.$deckId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const EditDeckIdRoute = EditDeckIdRouteImport.update({
+  id: '/edit/$deckId',
+  path: '/edit/$deckId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ViewDeckIdRoute = ViewDeckIdRouteImport.update({
+  id: '/view/$deckId',
+  path: '/view/$deckId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/edit/$deckId': typeof EditDeckIdRoute
+  '/view/$deckId': typeof ViewDeckIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/edit/$deckId': typeof EditDeckIdRoute
+  '/view/$deckId': typeof ViewDeckIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/edit/$deckId': typeof EditDeckIdRoute
+  '/view/$deckId': typeof ViewDeckIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths: '/' | '/edit/$deckId' | '/view/$deckId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to: '/' | '/edit/$deckId' | '/view/$deckId'
+  id: '__root__' | '/' | '/edit/$deckId' | '/view/$deckId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  EditDeckIdRoute: typeof EditDeckIdRoute
+  ViewDeckIdRoute: typeof ViewDeckIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +68,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/edit/$deckId': {
+      id: '/edit/$deckId'
+      path: '/edit/$deckId'
+      fullPath: '/edit/$deckId'
+      preLoaderRoute: typeof EditDeckIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/view/$deckId': {
+      id: '/view/$deckId'
+      path: '/view/$deckId'
+      fullPath: '/view/$deckId'
+      preLoaderRoute: typeof ViewDeckIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  EditDeckIdRoute: EditDeckIdRoute,
+  ViewDeckIdRoute: ViewDeckIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
