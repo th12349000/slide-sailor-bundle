@@ -18,19 +18,57 @@ const FONT_FACE: Record<SlideElement["fontFamily"], string> = {
 
 const hex = (c: string) => (c.startsWith("#") ? c.slice(1) : c);
 
-/** Fetch a remote image into a data URL so it can be embedded. Returns null on failure. */
+const SAFE_IMAGE = /^data:image\/(png|jpe?g|gif);base64,/i;
+
+function blobToDataUrl(blob: Blob): Promise<string | null> {
+  return new Promise((resolve) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result as string);
+    r.onerror = () => resolve(null);
+    r.readAsDataURL(blob);
+  });
+}
+
+/** Re-encode any image (webp, avif, svg, ...) as PNG — PowerPoint refuses files containing those formats. */
+function rasterizeToPng(blob: Blob): Promise<string | null> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const w = img.naturalWidth || 1600;
+        const h = img.naturalHeight || 900;
+        const c = document.createElement("canvas");
+        c.width = w;
+        c.height = h;
+        c.getContext("2d")!.drawImage(img, 0, 0, w, h);
+        resolve(c.toDataURL("image/png"));
+      } catch {
+        resolve(null);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(null);
+    };
+    img.src = url;
+  });
+}
+
+/** Load an image as a PNG/JPEG/GIF data URL so it can be embedded. Returns null on failure. */
 async function toDataUrl(src: string): Promise<string | null> {
-  if (src.startsWith("data:")) return src;
+  if (SAFE_IMAGE.test(src)) return src;
   try {
     const res = await fetch(src);
     if (!res.ok) return null;
     const blob = await res.blob();
-    return await new Promise((resolve) => {
-      const r = new FileReader();
-      r.onload = () => resolve(r.result as string);
-      r.onerror = () => resolve(null);
-      r.readAsDataURL(blob);
-    });
+    if (/^image\/(png|jpe?g|gif)$/i.test(blob.type)) {
+      const data = await blobToDataUrl(blob);
+      if (data && SAFE_IMAGE.test(data)) return data;
+    }
+    return await rasterizeToPng(blob);
   } catch {
     return null;
   }
@@ -206,10 +244,20 @@ export function downloadBlob(blob: Blob, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 30_000);
 }
 
-export async function exportDeck(deck: Deck, format: "pptx" | "ppsx") {
-  const blob = await buildPresentationFile(deck, format === "ppsx");
+export type ExportFormat = "pptx" | "ppsx" | "both";
+
+/** Export as a ZIP containing a folder named after the deck with the presentation file(s) inside. */
+export async function exportDeck(deck: Deck, format: ExportFormat) {
   const safe = deck.title.replace(/[^\w\- ]+/g, "").trim() || "presentation";
-  downloadBlob(blob, `${safe}.${format}`);
+  const formats: ("pptx" | "ppsx")[] = format === "both" ? ["pptx", "ppsx"] : [format];
+  const entries = [];
+  for (const f of formats) {
+    const blob = await buildPresentationFile(deck, f === "ppsx");
+    entries.push({ name: `${safe}/${safe}.${f}`, data: new Uint8Array(await blob.arrayBuffer()) });
+  }
+  const bytes = await writeZip(entries);
+  downloadBlob(new Blob([bytes as BlobPart], { type: "application/zip" }), `${safe}.zip`);
+  return `${safe}.zip`;
 }
 
 // re-export type used above
